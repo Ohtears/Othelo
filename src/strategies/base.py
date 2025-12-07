@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple
 
-from src.game import Board, Color
+from src.game.board import Board, Color
 
 
 class Strategy(ABC):

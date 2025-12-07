@@ -1,6 +1,6 @@
 from typing import Optional, Tuple
 
-from src.strategies import Strategy
+from src.strategies.base import Strategy
 
 from .board import Board, Color
 

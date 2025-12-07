@@ -1,14 +1,14 @@
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 
-from src.game import Board, Color
+from src.game.board import Board, Color
 
 from .base import Strategy
 
 
 class MinimaxAI(Strategy):
-    """AI that chooses the move using the minimax algorithm"""
+    """AI that chooses the move using the minimax algorithm with optional debugging"""
 
     c_squares_value = -20
     x_square_value = -50
@@ -17,28 +17,67 @@ class MinimaxAI(Strategy):
     center_value = 0
     near_edge_value = 5
 
-    def __init__(self, depth: int = 3):
+    def __init__(self, depth: int = 3, debug: bool = False):
         self.depth = depth
         self.weights = None
+        self.debug = debug
+        self.tree_data = []  
+        self.node_counter = 0
 
     def choose_move(self, board: Board, color: Color) -> Optional[Tuple[int, int]]:
         valid_moves = board.get_valid_moves(color)
         if not valid_moves:
             return None
 
+        if self.debug:
+            self.tree_data = []
+            self.node_counter = 0
+            print(f"\n{'=' * 80}")
+            print(
+                f"MINIMAX DECISION TREE - Depth {self.depth} - Playing as {color.name}"
+            )
+            print(f"{'=' * 80}\n")
+
         best_move = None
         best_value = float("-inf")
+        move_evaluations = []
 
         for move in valid_moves:
             temp_board = board.copy()
             temp_board.make_move(move[0], move[1], color)
+
+            if self.debug:
+                print(f"Evaluating move {move}:")
+
             value = self._minimax(
-                temp_board, self.depth - 1, float("-inf"), float("inf"), False, color
+                temp_board,
+                self.depth - 1,
+                float("-inf"),
+                float("inf"),
+                False,
+                color,
+                depth_level=1,
+                parent_move=move,
             )
+
+            move_evaluations.append((move, value))
+
+            if self.debug:
+                print(f"  → Final value: {value:.2f}\n")
 
             if value > best_value:
                 best_value = value
                 best_move = move
+
+        if self.debug:
+            print(f"\n{'=' * 80}")
+            print("MOVE EVALUATION SUMMARY:")
+            print(f"{'=' * 80}")
+            sorted_moves = sorted(move_evaluations, key=lambda x: x[1], reverse=True)
+            for i, (move, value) in enumerate(sorted_moves, 1):
+                marker = "✓ CHOSEN" if move == best_move else ""
+                print(f"{i}. Move {move}: {value:.2f} {marker}")
+            print(f"{'=' * 80}\n")
 
         return best_move
 
@@ -50,10 +89,18 @@ class MinimaxAI(Strategy):
         beta: float,
         maximizing: bool,
         color: Color,
+        depth_level: int = 0,
+        parent_move: Optional[Tuple[int, int]] = None,
     ) -> float:
-        """Minimax with alpha-beta pruning"""
+        """Minimax with alpha-beta pruning and optional debugging"""
+
+        indent = "  " * depth_level
+
         if depth == 0:
-            return self._evaluate(board, color)
+            eval_score = self._evaluate(board, color)
+            if self.debug and depth_level <= 2:  # Only show first 2 levels
+                print(f"{indent}[Leaf] Evaluation: {eval_score:.2f}")
+            return eval_score
 
         current_color = color if maximizing else color.opponent()
         valid_moves = board.get_valid_moves(current_color)
@@ -61,30 +108,92 @@ class MinimaxAI(Strategy):
         if not valid_moves:
             opponent_moves = board.get_valid_moves(current_color.opponent())
             if not opponent_moves:
-                return self._evaluate(board, color)
-            return self._minimax(board, depth - 1, alpha, beta, not maximizing, color)
+                eval_score = self._evaluate(board, color)
+                if self.debug and depth_level <= 2:
+                    print(f"{indent}[Game Over] Evaluation: {eval_score:.2f}")
+                return eval_score
+
+            if self.debug and depth_level <= 2:
+                print(f"{indent}[Pass] {current_color.name} has no moves")
+
+            return self._minimax(
+                board,
+                depth - 1,
+                alpha,
+                beta,
+                not maximizing,
+                color,
+                depth_level=depth_level,
+                parent_move=parent_move,
+            )
+
+        if self.debug and depth_level <= 2:
+            player = "MAX" if maximizing else "MIN"
+            print(
+                f"{indent}[{player} - Depth {depth}] {current_color.name} - {len(valid_moves)} moves available"
+            )
 
         if maximizing:
             max_eval = float("-inf")
-            for move in valid_moves:
+            for i, move in enumerate(valid_moves):
+                if self.debug and depth_level <= 2:
+                    print(f"{indent}  Move {i + 1}/{len(valid_moves)}: {move}")
+
                 temp_board = board.copy()
                 temp_board.make_move(move[0], move[1], current_color)
-                eval = self._minimax(temp_board, depth - 1, alpha, beta, False, color)
-                max_eval = max(max_eval, eval)
-                alpha = max(alpha, eval)
+                eval_score = self._minimax(
+                    temp_board,
+                    depth - 1,
+                    alpha,
+                    beta,
+                    False,
+                    color,
+                    depth_level=depth_level + 1,
+                    parent_move=move,
+                )
+
+                if self.debug and depth_level <= 2:
+                    print(f"{indent}  → Returns: {eval_score:.2f}")
+
+                max_eval = max(max_eval, eval_score)
+                alpha = max(alpha, eval_score)
+
                 if beta <= alpha:
+                    if self.debug and depth_level <= 2:
+                        print(f"{indent}  ✂ PRUNED (α={alpha:.2f} ≥ β={beta:.2f})")
                     break
+
             return max_eval
         else:
             min_eval = float("inf")
-            for move in valid_moves:
+            for i, move in enumerate(valid_moves):
+                if self.debug and depth_level <= 2:
+                    print(f"{indent}  Move {i + 1}/{len(valid_moves)}: {move}")
+
                 temp_board = board.copy()
                 temp_board.make_move(move[0], move[1], current_color)
-                eval = self._minimax(temp_board, depth - 1, alpha, beta, True, color)
-                min_eval = min(min_eval, eval)
-                beta = min(beta, eval)
+                eval_score = self._minimax(
+                    temp_board,
+                    depth - 1,
+                    alpha,
+                    beta,
+                    True,
+                    color,
+                    depth_level=depth_level + 1,
+                    parent_move=move,
+                )
+
+                if self.debug and depth_level <= 2:
+                    print(f"{indent}  → Returns: {eval_score:.2f}")
+
+                min_eval = min(min_eval, eval_score)
+                beta = min(beta, eval_score)
+
                 if beta <= alpha:
+                    if self.debug and depth_level <= 2:
+                        print(f"{indent}  ✂ PRUNED (β={beta:.2f} ≤ α={alpha:.2f})")
                     break
+
             return min_eval
 
     def _evaluate(self, board: Board, color: Color) -> float:
@@ -104,7 +213,6 @@ class MinimaxAI(Strategy):
 
         if self.weights is None or len(self.weights) != board_size:
             if board_size == 8:
-                # Use optimized weights for standard 8x8 board
                 self.weights = np.array(
                     [
                         [100, -20, 10, 5, 5, 10, -20, 100],
@@ -157,10 +265,88 @@ class MinimaxAI(Strategy):
             # * End game: piece count is most important
             return position_score * 0.3 + piece_diff * 2.0 + mobility_score * 1.0
 
+    def get_evaluation_breakdown(self, board: Board, color: Color) -> Dict:
+        """Get detailed breakdown of evaluation for debugging"""
+        board_size = board.size
+
+        if self.weights is None or len(self.weights) != board_size:
+            if board_size == 8:
+                self.weights = np.array(
+                    [
+                        [100, -20, 10, 5, 5, 10, -20, 100],
+                        [-20, -50, -2, -2, -2, -2, -50, -20],
+                        [10, -2, 5, 1, 1, 5, -2, 10],
+                        [5, -2, 1, 0, 0, 1, -2, 5],
+                        [5, -2, 1, 0, 0, 1, -2, 5],
+                        [10, -2, 5, 1, 1, 5, -2, 10],
+                        [-20, -50, -2, -2, -2, -2, -50, -20],
+                        [100, -20, 10, 5, 5, 10, -20, 100],
+                    ]
+                )
+            else:
+                self.weights = self._generate_positional_weights(board_size)
+
+        # Calculate all components
+        position_score = 0
+        for r in range(board_size):
+            for c in range(board_size):
+                if board.board[r][c] == color.value:
+                    position_score += self.weights[r][c]
+                elif board.board[r][c] == color.opponent().value:
+                    position_score -= self.weights[r][c]
+
+        black_count, white_count = board.get_score()
+        piece_diff = (
+            black_count - white_count
+            if color == Color.BLACK
+            else white_count - black_count
+        )
+
+        my_moves = len(board.get_valid_moves(color))
+        opponent_moves = len(board.get_valid_moves(color.opponent()))
+        mobility_score = my_moves - opponent_moves
+
+        total_pieces = black_count + white_count
+        max_pieces = board_size * board_size
+        game_progress = total_pieces / max_pieces
+
+        # Determine phase
+        if game_progress < 0.5:
+            phase = "Early Game"
+            weights = (1.0, 0.5, 3.0)
+        elif game_progress < 0.75:
+            phase = "Mid Game"
+            weights = (0.8, 1.0, 2.0)
+        else:
+            phase = "End Game"
+            weights = (0.3, 2.0, 1.0)
+
+        final_score = (
+            position_score * weights[0]
+            + piece_diff * weights[1]
+            + mobility_score * weights[2]
+        )
+
+        return {
+            "phase": phase,
+            "game_progress": f"{game_progress * 100:.1f}%",
+            "position_score": position_score,
+            "piece_diff": piece_diff,
+            "mobility": {
+                "my_moves": my_moves,
+                "opponent_moves": opponent_moves,
+                "score": mobility_score,
+            },
+            "weights": {
+                "position": weights[0],
+                "pieces": weights[1],
+                "mobility": weights[2],
+            },
+            "final_score": final_score,
+        }
+
     def _generate_positional_weights(self, board_size: int) -> np.ndarray:
-        """
-        Generate positional weights dynamically for any board size
-        """
+        """Generate positional weights dynamically for any board size"""
         weights = np.zeros((board_size, board_size), dtype=int)
 
         def edge_score(i):
